@@ -1,10 +1,19 @@
 #pragma once
+#include "HyperhdrConfig.h"
 
-// Linux-SPI includes
-#include <linux/spi/spidev.h>
+#ifdef ENABLE_SPIDEV
+    // Linux-SPI includes
+    #include <linux/spi/spidev.h>
+#endif
+
+#ifdef ENABLE_FTDIDEV
+    #include <ftdi.h>
+#endif
 
 // HyperHDR includes
 #include <leddevice/LedDevice.h>
+
+enum SpiImplementation { SPIDEV, FTDI };
 
 ///
 /// The ProviderSpi implements an abstract base-class for LedDevices using the SPI-device.
@@ -57,18 +66,12 @@ protected:
 	///
 	int writeBytes(unsigned size, const uint8_t* data);
 
-	// esp spi is pripriotary protocol
-	int writeBytesEsp8266(unsigned size, const uint8_t* data);
-
-	// esp32 spi packet protocol
-	int writeBytesEsp32(unsigned size, const uint8_t* data);
-
 	/// The name of the output device
 	QString _deviceName;
 
 	/// The used baudrate of the output device
 	int _baudRate_Hz;
-
+#ifdef ENABLE_SPIDEV
 	/// The File Identifier of the opened output device (or -1 if not opened)
 	int _fid;
 
@@ -78,8 +81,14 @@ protected:
 	/// 1=>invert the data pattern
 	bool _spiDataInvert;
 
-	QString _spiType;
-
 	/// The transfer structure for writing to the spi-device
 	spi_ioc_transfer _spi;
+#endif
+
+#ifdef ENABLE_FTDIDEV
+    /// The Ftdi serial-device
+	struct ftdi_context *_ftdic;
+#endif
+
+    SpiImplementation _spiImplementation;
 };

@@ -1,4 +1,7 @@
+#include "HyperhdrConfig.h"
+#include "ProviderSpi.h"
 
+#ifdef ENABLE_SPIDEV
 // STL includes
 #include <cstring>
 #include <cstdio>
@@ -9,242 +12,330 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <sys/ioctl.h>
+#include <QDirIterator>
+#endif
+
+#ifdef ENABLE_FTDIDEV
+#define ANY_FTDI_VENDOR 0x0
+#define ANY_FTDI_PRODUCT 0x0
+
+#include <ftdi.h>
+#include <libusb.h>
+#include <QEventLoop>
+namespace Pin
+{
+    // enumerate the AD bus for conveniance.
+    enum bus_t
+    {
+        SK = 0x01, // ADBUS0, SPI data clock
+        DO = 0x02, // ADBUS1, SPI data out
+        CS = 0x08, // ADBUS3, SPI chip select, active low
+    };
+}
+#define IS_FTDI_DEVICE_NAME(deviceName)  (deviceName.startsWith("d:") || deviceName.startsWith("i:") || deviceName.startsWith("s:"))
+#define FTDI_CHECK_RESULT(statement) if (statement) {setInError(ftdi_get_error_string(_ftdic)); return retVal;}
+
+const unsigned char pinInitialState = Pin::CS;
+// Use these pins as outputs
+const unsigned char pinDirection = Pin::SK | Pin::DO | Pin::CS;
+#endif
 
 // Local HyperHDR includes
-#include "ProviderSpi.h"
 #include <utils/Logger.h>
 
-#include <QDirIterator>
 
-ProviderSpi::ProviderSpi(const QJsonObject& deviceConfig)
-	: LedDevice(deviceConfig)
-	, _deviceName("/dev/spidev0.0")
-	, _baudRate_Hz(1000000)
-	, _fid(-1)
-	, _spiMode(SPI_MODE_0)
-	, _spiDataInvert(false)
-	, _spiType("")
+ProviderSpi::ProviderSpi(const QJsonObject &deviceConfig)
+        : LedDevice(deviceConfig), _deviceName("/dev/spidev0.0"), _baudRate_Hz(1000000)
+#ifdef ENABLE_SPIDEV
+, _fid(-1)
+, _spiMode(SPI_MODE_0)
+, _spiDataInvert(false)
+#endif
+#ifdef ENABLE_FTDIDEV
+, _ftdic(nullptr)
+#endif
 {
-	memset(&_spi, 0, sizeof(_spi));
+#ifdef ENABLE_SPIDEV
+    memset(&_spi, 0, sizeof(_spi));
+#endif
 }
 
-ProviderSpi::~ProviderSpi()
-{
+ProviderSpi::~ProviderSpi() {
 }
 
-bool ProviderSpi::init(const QJsonObject& deviceConfig)
-{
-	bool isInitOK = false;
+bool ProviderSpi::init(const QJsonObject &deviceConfig) {
+    bool isInitOK = false;
 
-	// Initialise sub-class
-	if (LedDevice::init(deviceConfig))
-	{
-		_deviceName = deviceConfig["output"].toString(_deviceName);
-		_spiType = deviceConfig["spitype"].toString("");
-		_baudRate_Hz = deviceConfig["rate"].toInt(_baudRate_Hz);
-		_spiMode = deviceConfig["spimode"].toInt(_spiMode);
-		_spiDataInvert = deviceConfig["invert"].toBool(_spiDataInvert);
+    // Initialise sub-class
+    if (LedDevice::init(deviceConfig)) {
+        _deviceName = deviceConfig["output"].toString(_deviceName);
+        _baudRate_Hz = deviceConfig["rate"].toInt(_baudRate_Hz);
+        Debug(_log, "_baudRate_Hz [%d]", _baudRate_Hz);
+#ifdef ENABLE_SPIDEV
+        _spiMode = deviceConfig["spimode"].toInt(_spiMode);
+        _spiDataInvert = deviceConfig["invert"].toBool(_spiDataInvert);
+        Debug(_log, "_spiDataInvert [%d], _spiMode [%d]", _spiDataInvert, _spiMode);
+#endif
+        _spiImplementation = IS_FTDI_DEVICE_NAME(_deviceName) ? FTDI : SPIDEV;
 
-		Debug(_log, "_baudRate_Hz [%d], _spiType: %s", _baudRate_Hz, QSTRING_CSTR(_spiType));
-		Debug(_log, "_spiDataInvert [%d], _spiMode [%d]", _spiDataInvert, _spiMode);
-
-		isInitOK = true;
-	}
-	return isInitOK;
+        isInitOK = true;
+    }
+    return isInitOK;
 }
 
-int ProviderSpi::open()
-{
-	int retval = -1;
-	QString errortext;
-	_isDeviceReady = false;
+int ProviderSpi::open() {
+    int retVal = -1;
+    QString errortext;
+    _isDeviceReady = false;
+    if (_spiImplementation == SPIDEV) {
+#ifdef ENABLE_SPIDEV
+        const int bitsPerWord = 8;
 
-	const int bitsPerWord = 8;
+        _fid = ::open(QSTRING_CSTR(_deviceName), O_RDWR);
 
-	_fid = ::open(QSTRING_CSTR(_deviceName), O_RDWR);
+        if (_fid < 0)
+        {
+            errortext = QString("Failed to open device (%1). Error message: %2").arg(_deviceName, strerror(errno));
+            retVal = -1;
+        }
+        else
+        {
+            if (ioctl(_fid, SPI_IOC_WR_MODE, &_spiMode) == -1 || ioctl(_fid, SPI_IOC_RD_MODE, &_spiMode) == -1)
+            {
+                retVal = -2;
+            }
+            else
+            {
+                if (ioctl(_fid, SPI_IOC_WR_BITS_PER_WORD, &bitsPerWord) == -1 || ioctl(_fid, SPI_IOC_RD_BITS_PER_WORD, &bitsPerWord) == -1)
+                {
+                    retVal = -4;
+                }
+                else
+                {
+                    if (ioctl(_fid, SPI_IOC_WR_MAX_SPEED_HZ, &_baudRate_Hz) == -1 || ioctl(_fid, SPI_IOC_RD_MAX_SPEED_HZ, &_baudRate_Hz) == -1)
+                    {
+                        retVal = -6;
+                    }
+                    else
+                    {
+                        // Everything OK -> enable device
+                        _isDeviceReady = true;
+                        retVal = 0;
+                    }
+                }
+            }
+            if (retVal < 0)
+            {
+                errortext = QString("Failed to open device (%1). Error Code: %2").arg(_deviceName).arg(retVal);
+            }
+        }
 
-	if (_fid < 0)
-	{
-		errortext = QString("Failed to open device (%1). Error message: %2").arg(_deviceName, strerror(errno));
-		retval = -1;
-	}
-	else
-	{
-		if (ioctl(_fid, SPI_IOC_WR_MODE, &_spiMode) == -1 || ioctl(_fid, SPI_IOC_RD_MODE, &_spiMode) == -1)
-		{
-			retval = -2;
-		}
-		else
-		{
-			if (ioctl(_fid, SPI_IOC_WR_BITS_PER_WORD, &bitsPerWord) == -1 || ioctl(_fid, SPI_IOC_RD_BITS_PER_WORD, &bitsPerWord) == -1)
-			{
-				retval = -4;
-			}
-			else
-			{
-				if (ioctl(_fid, SPI_IOC_WR_MAX_SPEED_HZ, &_baudRate_Hz) == -1 || ioctl(_fid, SPI_IOC_RD_MAX_SPEED_HZ, &_baudRate_Hz) == -1)
-				{
-					retval = -6;
-				}
-				else
-				{
-					// Everything OK -> enable device
-					_isDeviceReady = true;
-					retval = 0;
-				}
-			}
-		}
-		if (retval < 0)
-		{
-			errortext = QString("Failed to open device (%1). Error Code: %2").arg(_deviceName).arg(retval);
-		}
-	}
+        if (retVal < 0)
+        {
+            this->setInError(errortext);
+        }
+#endif
+    } else if (_spiImplementation == FTDI) {
+#ifdef ENABLE_FTDIDEV
+        _ftdic = ftdi_new();
 
-	if (retval < 0)
-	{
-		this->setInError(errortext);
-	}
+        Debug(_log, "Opening FTDI device=%s", QSTRING_CSTR(_deviceName));
 
-	return retval;
+        FTDI_CHECK_RESULT((retVal = ftdi_usb_open_string(_ftdic, QSTRING_CSTR(_deviceName))) < 0);
+        /* doing this disable resets things if they were in a bad state */
+        FTDI_CHECK_RESULT((retVal = ftdi_disable_bitbang(_ftdic)) < 0);
+        FTDI_CHECK_RESULT((retVal = ftdi_setflowctrl(_ftdic, SIO_DISABLE_FLOW_CTRL)) < 0);
+        FTDI_CHECK_RESULT((retVal = ftdi_set_bitmode(_ftdic, 0x00, BITMODE_RESET)) < 0);
+        FTDI_CHECK_RESULT((retVal = ftdi_set_bitmode(_ftdic, 0xff, BITMODE_MPSSE)) < 0);
+
+
+        double reference_clock = 60e6;
+        int divisor = (reference_clock / 2 / _baudRate_Hz) - 1;
+        std::vector<uint8_t> buf = {
+                DIS_DIV_5,
+                TCK_DIVISOR,
+                static_cast<unsigned char>(divisor),
+                static_cast<unsigned char>(divisor >> 8),
+                SET_BITS_LOW,          // opcode: set low bits (ADBUS[0-7]
+                pinInitialState,    // argument: inital pin state
+                pinDirection
+        };
+
+        FTDI_CHECK_RESULT((retVal = ftdi_write_data(_ftdic, buf.data(), buf.size())) != buf.size());
+
+        _isDeviceReady = true;
+
+#endif
+    }
+    return retVal;
 }
 
-int ProviderSpi::close()
-{
-	// LedDevice specific closing activities
-	int retval = 0;
-	_isDeviceReady = false;
 
-	// Test, if device requires closing
-	if (_fid > -1)
-	{
-		// Close device
-		if (::close(_fid) != 0)
-		{
-			Error(_log, "Failed to close device (%s). Error message: %s", QSTRING_CSTR(_deviceName), strerror(errno));
-			retval = -1;
-		}
-	}
-	return retval;
+int ProviderSpi::close() {
+    // LedDevice specific closing activities
+    int retVal = 0;
+    _isDeviceReady = false;
+
+    if (_spiImplementation == SPIDEV) {
+#ifdef ENABLE_SPIDEV
+        // Test, if device requires closing
+        if (_fid > -1)
+        {
+            // Close device
+            if (::close(_fid) != 0)
+            {
+                Error(_log, "Failed to close device (%s). Error message: %s", QSTRING_CSTR(_deviceName), strerror(errno));
+                retVal = -1;
+            }
+        }
+#endif
+    } else if (_spiImplementation == FTDI) {
+#ifdef ENABLE_FTDIDEV
+        if (_ftdic != nullptr) {
+            Debug(_log, "Closing FTDI device");
+    //      Delay to give time to push color black from writeBlack() into the led,
+    //      otherwise frame transmission will be terminated half way through
+            QEventLoop loop;
+            QTimer::singleShot(30, &loop, &QEventLoop::quit);
+            loop.exec();
+            ftdi_set_bitmode(_ftdic, 0x00, BITMODE_RESET);
+            ftdi_usb_close(_ftdic);
+            ftdi_free(_ftdic);
+            _ftdic = nullptr;
+        }
+#endif
+    }
+    return retVal;
 }
 
-int ProviderSpi::writeBytes(unsigned size, const uint8_t* data)
-{
-	uint8_t* newdata = nullptr;
+int ProviderSpi::writeBytes(unsigned size, const uint8_t *data) {
+    int retVal = 0;
+    if (_spiImplementation == SPIDEV) {
+#ifdef ENABLE_SPIDEV
+        uint8_t* newdata = nullptr;
 
-	if (_fid < 0)
-	{
-		return -1;
-	}
+        if (_fid < 0)
+        {
+            return -1;
+        }
 
-	_spi.tx_buf = __u64(data);
-	_spi.len = __u32(size);
+        _spi.tx_buf = __u64(data);
+        _spi.len = __u32(size);
 
-	if (_spiDataInvert)
-	{
-		newdata = (uint8_t*)malloc(size);
-		for (unsigned i = 0; i < size; i++) {
-			newdata[i] = data[i] ^ 0xff;
-		}
-		_spi.tx_buf = __u64(newdata);
-	}
+        if (_spiDataInvert)
+        {
+            newdata = (uint8_t*)malloc(size);
+            for (unsigned i = 0; i < size; i++) {
+                newdata[i] = data[i] ^ 0xff;
+            }
+            _spi.tx_buf = __u64(newdata);
+        }
 
-	int retVal = ioctl(_fid, SPI_IOC_MESSAGE(1), &_spi);
-	ErrorIf((retVal < 0), _log, "SPI failed to write. errno: %d, %s", errno, strerror(errno));
+        retVal = ioctl(_fid, SPI_IOC_MESSAGE(1), &_spi);
+        ErrorIf((retVal < 0), _log, "SPI failed to write. errno: %d, %s", errno, strerror(errno));
 
-	if (newdata != nullptr)
-		free(newdata);
+        if (newdata != nullptr)
+            free(newdata);
+#endif
+    } else if (_spiImplementation == FTDI) {
+#ifdef ENABLE_FTDIDEV
+        int count_arg = size - 1;
+        std::vector<uint8_t> buf = {
+                SET_BITS_LOW,
+                pinInitialState & ~Pin::CS,
+                pinDirection,
+                MPSSE_DO_WRITE | MPSSE_WRITE_NEG,
+                static_cast<unsigned char>(count_arg),
+                static_cast<unsigned char>(count_arg >> 8),
+    //            LED's data will be inserted here
+                SET_BITS_LOW,
+                pinInitialState | Pin::CS,
+                pinDirection
+        };
+        // insert before last SET_BITS_LOW command
+        // SET_BITS_LOW takes 2 arguments, so we're inserting data in -3 position from the end
+        buf.insert(buf.end() - 3, &data[0], &data[size]);
 
-	return retVal;
+        FTDI_CHECK_RESULT((retVal = (ftdi_write_data(_ftdic, buf.data(), buf.size())) != buf.size()));
+#endif
+    }
+    return retVal;
 }
 
-int ProviderSpi::writeBytesEsp8266(unsigned size, const uint8_t* data)
-{
-	uint8_t* startData = (uint8_t*)data;
-	uint8_t* endData = (uint8_t*)data + size;
-	uint8_t buffer[34];
+QJsonObject ProviderSpi::discover(const QJsonObject & /*params*/) {
+    QJsonObject devicesDiscovered;
+    QJsonArray deviceList;
+#ifdef ENABLE_SPIDEV
+    QStringList files;
+    QDirIterator it("/dev", QStringList() << "spidev*", QDir::System);
 
-	if (_fid < 0)
-	{
-		return -1;
-	}
+    while (it.hasNext())
+        files << it.next();
+    files.sort();
 
-	_spi.tx_buf = __u64(&buffer);
-	_spi.len = __u32(34);
-	_spi.delay_usecs = 0;
+    for (const auto& path : files)
+        deviceList.push_back(QJsonObject{
+            {"value", path},
+            { "name", path } });
+#endif
 
-	int retVal = 0;
+#ifdef ENABLE_FTDIDEV
+    struct ftdi_device_list *devlist;
+    struct ftdi_context *ftdic;
 
-	while (retVal >= 0 && startData < endData)
-	{
-		memset(buffer, 0, sizeof(buffer));
-		buffer[0] = 2;
-		buffer[1] = 0;
-		for (int i = 0; i < 32 && startData < endData; i++, startData++)
-		{
-			buffer[2 + i] = *startData;
-		}
-		retVal = ioctl(_fid, SPI_IOC_MESSAGE(1), &_spi);
-		ErrorIf((retVal < 0), _log, "SPI failed to write. errno: %d, %s", errno, strerror(errno));
-	}
+    ftdic = ftdi_new();
 
-	return retVal;
-}
+    if (ftdi_usb_find_all(ftdic, &devlist, ANY_FTDI_VENDOR, ANY_FTDI_PRODUCT) > 0)
+    {
+        QMap<QString, uint8_t> deviceIndexes;
+        struct ftdi_device_list *curdev = devlist;
+        while (curdev)
+        {
+            char manufacturer[128] = {0}, serial_string[128] = {0};
+            ftdi_usb_get_strings(ftdic, curdev->dev, manufacturer, 128, NULL, 0, serial_string, 128);
 
-int ProviderSpi::writeBytesEsp32(unsigned size, const uint8_t* data)
-{
-	static const int      REAL_BUFFER = 1536;
-	static const uint32_t BUFFER_SIZE = REAL_BUFFER + 8;
+            libusb_device_descriptor desc;
+            libusb_get_device_descriptor(curdev->dev, &desc);
 
-	uint8_t* startData = (uint8_t*)data;
-	uint8_t* endData = (uint8_t*)data + size;
-	uint8_t buffer[BUFFER_SIZE];
+            QString vendorAndProduct = QString("0x%1:0x%2")
+                    .arg(desc.idVendor, 4, 16, QChar{'0'})
+                    .arg(desc.idProduct, 4, 16, QChar{'0'});
 
-	if (_fid < 0)
-	{
-		return -1;
-	}
+            QString serialNumber {serial_string};
+            QString ftdiOpenString;
+            if(!serialNumber.isEmpty())
+            {
+                ftdiOpenString = QString("s:%1:%2").arg(vendorAndProduct).arg(serialNumber);
+            }
+            else
+            {
+                uint8_t deviceIndex = deviceIndexes.value(vendorAndProduct, 0);
+                ftdiOpenString = QString("i:%1:%2").arg(vendorAndProduct).arg(deviceIndex);
+                deviceIndexes.insert(vendorAndProduct, deviceIndex + 1);
+            }
 
-	_spi.tx_buf = __u64(&buffer);
-	_spi.len = __u32(BUFFER_SIZE);
-	_spi.delay_usecs = 0;
+            QString displayLabel = QString("%1 (%2)")
+                    .arg(ftdiOpenString)
+                    .arg(manufacturer);
 
-	int retVal = 0;
+            deviceList.push_back(QJsonObject{
+                {"value", ftdiOpenString},
+                {"name", displayLabel}
+            });
 
-	while (retVal >= 0 && startData < endData)
-	{
-		memset(buffer, 0, sizeof(buffer));
-		for (int i = 0; i < REAL_BUFFER && startData < endData; i++, startData++)
-		{
-			buffer[i] = *startData;
-		}
-		buffer[REAL_BUFFER] = 0xAA;
-		retVal = ioctl(_fid, SPI_IOC_MESSAGE(1), &_spi);
-		ErrorIf((retVal < 0), _log, "SPI failed to write. errno: %d, %s", errno, strerror(errno));
-	}
+            curdev = curdev->next;
+        }
+    }
 
-	return retVal;
-}
+    ftdi_list_free(&devlist);
+    ftdi_free(ftdic);
+#endif
 
-QJsonObject ProviderSpi::discover(const QJsonObject& /*params*/)
-{
-	QJsonObject devicesDiscovered;
-	QJsonArray deviceList;
-	QStringList files;	
-	QDirIterator it("/dev", QStringList() << "spidev*", QDir::System);
-	
-	while (it.hasNext())
-		files << it.next();
-	files.sort();
+    devicesDiscovered.insert("ledDeviceType", _activeDeviceType);
+    devicesDiscovered.insert("devices", deviceList);
 
-	for (const auto& path : files)
-		deviceList.push_back(QJsonObject{
-			{"value", path},
-			{ "name", path } });
+    Debug(_log, "SPI devices discovered: [%s]",
+          QString(QJsonDocument(devicesDiscovered).toJson(QJsonDocument::Compact)).toUtf8().constData());
 
-	devicesDiscovered.insert("ledDeviceType", _activeDeviceType);
-	devicesDiscovered.insert("devices", deviceList);
-
-	Debug(_log, "SPI devices discovered: [%s]", QString(QJsonDocument(devicesDiscovered).toJson(QJsonDocument::Compact)).toUtf8().constData());
-
-	return devicesDiscovered;
+    return devicesDiscovered;
 }

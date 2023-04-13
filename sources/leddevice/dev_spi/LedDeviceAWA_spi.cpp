@@ -1,4 +1,5 @@
 #include "LedDeviceAWA_spi.h"
+#include <sys/ioctl.h>
 #include <QtEndian>
 
 LedDeviceAWA_spi::LedDeviceAWA_spi(const QJsonObject& deviceConfig)
@@ -11,6 +12,7 @@ LedDeviceAWA_spi::LedDeviceAWA_spi(const QJsonObject& deviceConfig)
 	_white_channel_red = 255;
 	_white_channel_green = 255;
 	_white_channel_blue = 255;
+    _spiType = "";
 }
 
 LedDevice* LedDeviceAWA_spi::construct(const QJsonObject& deviceConfig)
@@ -30,6 +32,9 @@ bool LedDeviceAWA_spi::init(const QJsonObject& deviceConfig)
 		_white_channel_red = qMin(deviceConfig["white_channel_red"].toInt(255), 255);
 		_white_channel_green = qMin(deviceConfig["white_channel_green"].toInt(255), 255);
 		_white_channel_blue = qMin(deviceConfig["white_channel_blue"].toInt(255), 255);
+        _spiType = deviceConfig["spitype"].toString(_spiType);
+
+        Debug(_log, "_spiType: %s", QSTRING_CSTR(_spiType));
 
 		CreateHeader();
 
@@ -119,4 +124,73 @@ void LedDeviceAWA_spi::whiteChannelExtension(uint8_t*& writer)
 		*(writer++) = _white_channel_green;
 		*(writer++) = _white_channel_blue;
 	}
+}
+
+
+int LedDeviceAWA_spi::writeBytesEsp8266(unsigned size, const uint8_t* data)
+{
+    uint8_t* startData = (uint8_t*)data;
+    uint8_t* endData = (uint8_t*)data + size;
+    uint8_t buffer[34];
+
+    if (_fid < 0)
+    {
+        return -1;
+    }
+
+    _spi.tx_buf = __u64(&buffer);
+    _spi.len = __u32(34);
+    _spi.delay_usecs = 0;
+
+    int retVal = 0;
+
+    while (retVal >= 0 && startData < endData)
+    {
+        memset(buffer, 0, sizeof(buffer));
+        buffer[0] = 2;
+        buffer[1] = 0;
+        for (int i = 0; i < 32 && startData < endData; i++, startData++)
+        {
+            buffer[2 + i] = *startData;
+        }
+        retVal = ioctl(_fid, SPI_IOC_MESSAGE(1), &_spi);
+        ErrorIf((retVal < 0), _log, "SPI failed to write. errno: %d, %s", errno, strerror(errno));
+    }
+
+    return retVal;
+}
+
+int LedDeviceAWA_spi::writeBytesEsp32(unsigned size, const uint8_t* data)
+{
+    static const int      REAL_BUFFER = 1536;
+    static const uint32_t BUFFER_SIZE = REAL_BUFFER + 8;
+
+    uint8_t* startData = (uint8_t*)data;
+    uint8_t* endData = (uint8_t*)data + size;
+    uint8_t buffer[BUFFER_SIZE];
+
+    if (_fid < 0)
+    {
+        return -1;
+    }
+
+    _spi.tx_buf = __u64(&buffer);
+    _spi.len = __u32(BUFFER_SIZE);
+    _spi.delay_usecs = 0;
+
+    int retVal = 0;
+
+    while (retVal >= 0 && startData < endData)
+    {
+        memset(buffer, 0, sizeof(buffer));
+        for (int i = 0; i < REAL_BUFFER && startData < endData; i++, startData++)
+        {
+            buffer[i] = *startData;
+        }
+        buffer[REAL_BUFFER] = 0xAA;
+        retVal = ioctl(_fid, SPI_IOC_MESSAGE(1), &_spi);
+        ErrorIf((retVal < 0), _log, "SPI failed to write. errno: %d, %s", errno, strerror(errno));
+    }
+
+    return retVal;
 }

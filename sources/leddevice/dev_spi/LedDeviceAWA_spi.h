@@ -47,6 +47,12 @@ private:
 
 	void whiteChannelExtension(uint8_t*& writer);
 
+    // esp spi is proprietary protocol
+    int writeBytesEsp8266(unsigned size, const uint8_t* data);
+
+    // esp32 spi packet protocol
+    int writeBytesEsp32(unsigned size, const uint8_t* data);
+
 	int _headerSize;
 
 	bool _white_channel_calibration;
@@ -54,6 +60,8 @@ private:
 	uint8_t _white_channel_red;
 	uint8_t _white_channel_green;
 	uint8_t _white_channel_blue;
+
+    QString _spiType;
 };
 
 #endif // LEDEVICEAPA102_H
