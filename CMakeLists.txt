@@ -38,6 +38,7 @@ SET ( DEFAULT_BONJOUR                     ON  )
 SET ( DEFAULT_MQTT                        ON  )
 SET ( DEFAULT_STATIC_QT_PLUGINS           OFF )
 SET ( DEFAULT_PRECOMPILED_HEADERS         ON  )
+SET ( DEFAULT_ENABLE_FTDIDEV           	  ON )
 
 # Configure CCache if available
 find_program(CCACHE_FOUND ccache)
@@ -325,6 +326,9 @@ colorMe("ENABLE_SPIDEV = " ${ENABLE_SPIDEV})
 
 option(ENABLE_WS281XPWM "Enable the WS281x-PWM device" ${DEFAULT_WS281XPWM} )
 colorMe("ENABLE_WS281XPWM = " ${ENABLE_WS281XPWM})
+
+option(ENABLE_FTDIDEV "Enable the FTDI device" ${DEFAULT_ENABLE_FTDIDEV})
+colorMe("ENABLE_FTDIDEV = " ${ENABLE_FTDIDEV})
 
 message( STATUS "\n${CyanColor}SOFTWARE GRABBERS${ColorReset}")
 

@@ -45,6 +45,9 @@
 // Define to enable the spi-device
 #cmakedefine ENABLE_SPIDEV
 
+// Define to enable the ftdi spi-device
+#cmakedefine ENABLE_FTDIDEV
+
 // Define to enable the ws281x-pwm-via-dma-device using jgarff's library
 #cmakedefine ENABLE_WS281XPWM
 

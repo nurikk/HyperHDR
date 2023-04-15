@@ -1,10 +1,10 @@
 #pragma once
 
-// Linux-SPI includes
-#include <linux/spi/spidev.h>
-
 // HyperHDR includes
 #include <leddevice/LedDevice.h>
+#include <providers/BaseProvider.h>
+
+enum SpiImplementation { SPIDEV, FTDI };
 
 ///
 /// The ProviderSpi implements an abstract base-class for LedDevices using the SPI-device.
@@ -32,7 +32,7 @@ public:
 	///
 	/// Opens and configures the output device
 	///
-	/// @return Zero on succes else negative
+	/// @return Zero on success else negative
 	///
 	int open() override;
 
@@ -57,29 +57,8 @@ protected:
 	///
 	int writeBytes(unsigned size, const uint8_t* data);
 
-	// esp spi is pripriotary protocol
-	int writeBytesEsp8266(unsigned size, const uint8_t* data);
-
-	// esp32 spi packet protocol
-	int writeBytesEsp32(unsigned size, const uint8_t* data);
-
 	/// The name of the output device
 	QString _deviceName;
 
-	/// The used baudrate of the output device
-	int _baudRate_Hz;
-
-	/// The File Identifier of the opened output device (or -1 if not opened)
-	int _fid;
-
-	/// which spi clock mode do we use? (0..3)
-	int _spiMode;
-
-	/// 1=>invert the data pattern
-	bool _spiDataInvert;
-
-	QString _spiType;
-
-	/// The transfer structure for writing to the spi-device
-	spi_ioc_transfer _spi;
+    BaseProvider * _spiProvider;
 };

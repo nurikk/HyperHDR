@@ -18,6 +18,7 @@ include_directories(
 	dev_spi
 	dev_rpi_pwm
 	dev_tinker
+	dev_ftdi
 )
 
 FILE ( GLOB Leddevice_SOURCES
@@ -39,8 +40,19 @@ if ( ENABLE_OSX OR WIN32 )
 	list(REMOVE_ITEM Leddevice_SOURCES "${CURRENT_SOURCE_DIR}/dev_other/LedDevicePiBlaster.cpp")
 endif()
 
-if ( ENABLE_SPIDEV )
+if ( ENABLE_SPIDEV OR ENABLE_FTDIDEV )
 	FILE ( GLOB Leddevice_SPI_SOURCES "${CURRENT_SOURCE_DIR}/dev_spi/*.h" "${CURRENT_SOURCE_DIR}/dev_spi/*.cpp")
+	FILE ( GLOB Leddevice_SPI_PROVIDERS_SOURCES "${CURRENT_SOURCE_DIR}/dev_spi/providers/BaseProvider.*")
+
+	if ( ENABLE_FTDIDEV )
+		file (GLOB FTDI_PROVIDER_SOURCES "${CURRENT_SOURCE_DIR}/dev_spi/providers/ProviderFtdi.*")
+		list (APPEND Leddevice_SPI_PROVIDERS_SOURCES ${FTDI_PROVIDER_SOURCES})
+	endif()
+
+	if ( ENABLE_SPIDEV )
+		file (GLOB SPIDEV_PROVIDER_SOURCES "${CURRENT_SOURCE_DIR}/dev_spi/providers/ProviderSpidev.*")
+		list (APPEND Leddevice_SPI_PROVIDERS_SOURCES ${SPIDEV_PROVIDER_SOURCES})
+	endif()
 endif()
 
 if ( ENABLE_WS281XPWM )
@@ -57,6 +69,7 @@ SET( Leddevice_SOURCES
 	${Leddevice_SERIAL_SOURCES}
 	${Leddevice_TINKER_SOURCES}
 	${Leddevice_SPI_SOURCES}
+	${Leddevice_SPI_PROVIDERS_SOURCES}
 	${Leddevice_PWM_SOURCES}
 )
 
@@ -123,4 +136,12 @@ endif()
 
 if(USE_PRECOMPILED_HEADERS AND COMMAND target_precompile_headers)
     target_precompile_headers(leddevice REUSE_FROM precompiled_hyperhdr_headers)
+endif()
+
+
+if( ENABLE_FTDIDEV )
+	find_package(PkgConfig REQUIRED)
+	pkg_check_modules(LIB_FTDI REQUIRED IMPORTED_TARGET libftdi1 )
+	target_include_directories(leddevice PRIVATE PkgConfig::LIB_FTDI)
+	target_link_libraries(leddevice PkgConfig::LIB_FTDI)
 endif()
