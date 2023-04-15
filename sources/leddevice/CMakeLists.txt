@@ -42,10 +42,17 @@ endif()
 
 if ( ENABLE_SPIDEV OR ENABLE_FTDIDEV )
 	FILE ( GLOB Leddevice_SPI_SOURCES "${CURRENT_SOURCE_DIR}/dev_spi/*.h" "${CURRENT_SOURCE_DIR}/dev_spi/*.cpp")
-	if (NOT ENABLE_SPIDEV)
-		list(REMOVE_ITEM Leddevice_SPI_SOURCES "${CURRENT_SOURCE_DIR}/dev_spi/LedDeviceAWA_spi.cpp")
-		list(REMOVE_ITEM Leddevice_SPI_SOURCES "${CURRENT_SOURCE_DIR}/dev_spi/LedDeviceAWA_spi.h")
-    endif()
+	FILE ( GLOB Leddevice_SPI_PROVIDERS_SOURCES "${CURRENT_SOURCE_DIR}/dev_spi/providers/BaseProvider.*")
+
+	if ( ENABLE_FTDIDEV )
+		file (GLOB FTDI_PROVIDER_SOURCES "${CURRENT_SOURCE_DIR}/dev_spi/providers/ProviderFtdi.*")
+		list (APPEND Leddevice_SPI_PROVIDERS_SOURCES ${FTDI_PROVIDER_SOURCES})
+	endif()
+
+	if ( ENABLE_SPIDEV )
+		file (GLOB SPIDEV_PROVIDER_SOURCES "${CURRENT_SOURCE_DIR}/dev_spi/providers/ProviderSpidev.*")
+		list (APPEND Leddevice_SPI_PROVIDERS_SOURCES ${SPIDEV_PROVIDER_SOURCES})
+	endif()
 endif()
 
 if ( ENABLE_WS281XPWM )
@@ -62,6 +69,7 @@ SET( Leddevice_SOURCES
 	${Leddevice_SERIAL_SOURCES}
 	${Leddevice_TINKER_SOURCES}
 	${Leddevice_SPI_SOURCES}
+	${Leddevice_SPI_PROVIDERS_SOURCES}
 	${Leddevice_PWM_SOURCES}
 )
 

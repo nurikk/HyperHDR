@@ -1,17 +1,8 @@
 #pragma once
-#include "HyperhdrConfig.h"
-
-#ifdef ENABLE_SPIDEV
-    // Linux-SPI includes
-    #include <linux/spi/spidev.h>
-#endif
-
-#ifdef ENABLE_FTDIDEV
-    #include <ftdi.h>
-#endif
 
 // HyperHDR includes
 #include <leddevice/LedDevice.h>
+#include <providers/BaseProvider.h>
 
 enum SpiImplementation { SPIDEV, FTDI };
 
@@ -41,7 +32,7 @@ public:
 	///
 	/// Opens and configures the output device
 	///
-	/// @return Zero on succes else negative
+	/// @return Zero on success else negative
 	///
 	int open() override;
 
@@ -69,26 +60,5 @@ protected:
 	/// The name of the output device
 	QString _deviceName;
 
-	/// The used baudrate of the output device
-	int _baudRate_Hz;
-#ifdef ENABLE_SPIDEV
-	/// The File Identifier of the opened output device (or -1 if not opened)
-	int _fid;
-
-	/// which spi clock mode do we use? (0..3)
-	int _spiMode;
-
-	/// 1=>invert the data pattern
-	bool _spiDataInvert;
-
-	/// The transfer structure for writing to the spi-device
-	spi_ioc_transfer _spi;
-#endif
-
-#ifdef ENABLE_FTDIDEV
-    /// The Ftdi serial-device
-	struct ftdi_context *_ftdic;
-#endif
-
-    SpiImplementation _spiImplementation;
+    BaseProvider * _spiProvider;
 };
