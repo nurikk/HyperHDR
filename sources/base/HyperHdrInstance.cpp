@@ -76,6 +76,7 @@ HyperHdrInstance::HyperHdrInstance(quint8 instance, bool disableOnStartup, QStri
 	, _videoControl(nullptr)
 	, _systemControl(nullptr)
 	, _rawUdpServer(nullptr)
+	, _automationTimer(nullptr)
 	, _log("")
 	, _hwLedCount()
 	, _ledGridSize()
@@ -142,6 +143,7 @@ void HyperHdrInstance::start()
 	connect(_muxer.get(), &Muxer::SignalVisiblePriorityChanged, this, &HyperHdrInstance::SignalVisiblePriorityChanged);
 	connect(_muxer.get(), &Muxer::SignalVisibleComponentChanged, this, &HyperHdrInstance::SignalVisibleComponentChanged);
 	_infinite = std::make_unique<CoreInfiniteEngine>(this);
+	_adjustmentBaseline = getSetting(settings::type::COLOR).object()["channelAdjustment"].toArray().first().toObject();
 	_ledGridSize = LedString::getLedLayoutGridSize(getSetting(settings::type::LEDS).array());
 	_currentLedColors = QVector<ColorRgb>(_ledString.leds().size(), ColorRgb::BLACK);
 	
@@ -166,6 +168,10 @@ void HyperHdrInstance::start()
 	_ledDeviceWrapper = std::make_unique<LedDeviceWrapper>(this);
 	connect(this, &HyperHdrInstance::SignalRequestComponent, _ledDeviceWrapper.get(), &LedDeviceWrapper::handleComponentState);
 	_ledDeviceWrapper->createLedDevice(ledDevice, _infinite->getSuggestedInterval(), _infinite->getAntiFlickeringFilterState(), _disableOnStartup);
+	_automationTimer = std::make_unique<QTimer>(this);
+	_automationTimer->setSingleShot(true);
+	connect(_automationTimer.get(), &QTimer::timeout, this, [this]() { reconcileAutomation(); });
+	reconcileAutomation();
 
 	// create the effect engine; needs to be initialized after smoothing!
 	_effectEngine = std::make_unique<EffectEngine>(this);
@@ -213,7 +219,16 @@ void HyperHdrInstance::handleSettingsUpdate(settings::type type, const QJsonDocu
 
 	//	std::cout << config.toJson().toStdString() << std::endl;
 
-	if (type == settings::type::LEDS)
+	if (type == settings::type::COLOR)
+	{
+		_adjustmentBaseline = config.object()["channelAdjustment"].toArray().first().toObject();
+		applyEffectiveAdjustments();
+	}
+	else if (type == settings::type::AUTOMATION)
+	{
+		reconcileAutomation();
+	}
+	else if (type == settings::type::LEDS)
 	{
 		const QJsonArray leds = config.array();
 
@@ -324,6 +339,15 @@ void HyperHdrInstance::setSetting(settings::type type, QString config)
 
 bool HyperHdrInstance::saveSettings(const QJsonObject& config, bool correct)
 {
+	if (config.contains("automation"))
+	{
+		QString error;
+		if (!TimeAutomation::validate(config["automation"].toObject(), error))
+		{
+			Error(_log, "Failed to save automation configuration: {:s}", (error));
+			return false;
+		}
+	}
 	return _instanceConfig->saveSettings(config, correct);
 }
 
@@ -546,28 +570,71 @@ void HyperHdrInstance::setColor(int priority, const QVector<ColorRgb>& ledColors
 
 void HyperHdrInstance::updateAdjustments(const QJsonObject& config)
 {
-	auto oldConfig = _infinite->getCurrentProcessingConfig();
-
-	auto newSettings = (oldConfig.size() == 1) ? oldConfig.first().toObject() : QJsonObject();
-
-	if (newSettings.isEmpty())
-		return;
-
 	for (auto it = config.constBegin(); it != config.constEnd(); ++it)
+		_adjustmentBaseline[it.key()] = it.value();
+
+	applyEffectiveAdjustments();
+}
+
+QJsonObject HyperHdrInstance::getAutomationConfig() const
+{
+	return getSetting(settings::type::AUTOMATION).object();
+}
+
+QJsonObject HyperHdrInstance::automationResult(const AutomationEvaluation& result) const
+{
+	QJsonObject response;
+	response["activeRuleIds"] = QJsonArray::fromStringList(result.activeRuleIds);
+	response["effectiveAdjustmentOverlay"] = result.overlay;
+	response["evaluatedAt"] = result.evaluatedAt.toString(Qt::ISODate);
+	if (result.nextTransition)
+		response["nextTransition"] = result.nextTransition->toString(Qt::ISODate);
+	return response;
+}
+
+QJsonObject HyperHdrInstance::getAutomationStatus() const
+{
+	return automationResult(_automationEvaluation);
+}
+
+QJsonObject HyperHdrInstance::evaluateAutomation(const QDateTime& at) const
+{
+	return automationResult(TimeAutomation::evaluate(getAutomationConfig(), at));
+}
+
+bool HyperHdrInstance::setAutomationConfig(const QJsonObject& config)
+{
+	QString error;
+	if (!TimeAutomation::validate(config, error))
 	{
-		newSettings[it.key()] = it.value();
+		Error(_log, "Failed to save automation configuration: {:s}", (error));
+		return false;
+	}
+	QJsonObject settings = getJsonConfig();
+	settings["automation"] = config;
+	return saveSettings(settings);
+}
+
+void HyperHdrInstance::reconcileAutomation(const QDateTime& at)
+{
+	_automationEvaluation = TimeAutomation::evaluate(getAutomationConfig(), at);
+	if (_automationOverlay != _automationEvaluation.overlay)
+	{
+		_automationOverlay = _automationEvaluation.overlay;
+		applyEffectiveAdjustments();
 	}
 
-	// pack it
-	QJsonArray newConfig;
-	newConfig.append(newSettings);
-	QJsonObject newObject;	
-	newObject["channelAdjustment"] = newConfig;
-	QJsonDocument newDoc(newObject);
+	const QDateTime safetyDeadline = at.addSecs(60);
+	const QDateTime nextWake = _automationEvaluation.nextTransition && *_automationEvaluation.nextTransition < safetyDeadline
+		? *_automationEvaluation.nextTransition : safetyDeadline;
+	_automationTimer->start(static_cast<int>(qMax<qint64>(1, at.msecsTo(nextWake))));
+}
 
-	// send it
-	emit SignalInstanceSettingsChanged(settings::type::COLOR, newDoc);
-	emit SignalAdjustmentUpdated(newConfig);
+void HyperHdrInstance::applyEffectiveAdjustments()
+{
+	const QJsonObject effective = TimeAutomation::merge(_adjustmentBaseline, _automationOverlay);
+	_infinite->updateCurrentProcessingConfig(effective);
+	emit SignalAdjustmentUpdated(QJsonArray{ effective });
 	update();
 }
 

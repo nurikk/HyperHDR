@@ -1,0 +1,51 @@
+{
+	"type": "object",
+	"required": true,
+	"properties": {
+		"version": { "type": "integer", "required": true, "default": 1, "enum": [1] },
+		"enabled": { "type": "boolean", "required": true, "default": false },
+		"timezone": { "type": "string", "required": true, "default": "system" },
+		"rules": {
+			"type": "array", "required": true, "default": [], "allowEmptyArray": true,
+			"items": {
+				"type": "object", "required": true,
+				"properties": {
+					"id": { "type": "string", "required": true },
+					"enabled": { "type": "boolean", "required": true },
+					"priority": { "type": "integer", "required": true },
+					"conditions": {
+						"type": "array", "required": true, "minItems": 1, "maxItems": 1,
+						"items": { "type": "object", "required": true, "properties": {
+							"type": { "type": "string", "required": true, "enum": ["time-range"] },
+							"start": { "type": "string", "required": true }, "end": { "type": "string", "required": true }
+						}, "additionalProperties": false }
+					},
+					"actions": {
+						"type": "array", "required": true, "minItems": 1, "maxItems": 1,
+						"items": { "type": "object", "required": true, "properties": {
+							"type": { "type": "string", "required": true, "enum": ["adjustment"] },
+							"values": { "type": "object", "required": true, "properties": {
+								"scaleOutput": { "type": "number", "minimum": 0, "maximum": 2 }, "gamma": { "type": "number", "minimum": 0.1, "maximum": 5 },
+								"backlightThreshold": { "type": "number", "minimum": 0, "maximum": 1 }, "backlightColored": { "type": "boolean" },
+								"luminanceGain": { "type": "number", "minimum": 0, "maximum": 10 }, "saturationGain": { "type": "number", "minimum": 0, "maximum": 10 },
+								"temperatureSetting": { "type": "string", "enum": ["disabled", "cold", "neutral", "warm", "custom"] },
+								"temperatureRed": { "type": "number", "minimum": 0, "maximum": 1 }, "temperatureGreen": { "type": "number", "minimum": 0, "maximum": 1 },
+								"temperatureBlue": { "type": "number", "minimum": 0, "maximum": 1 }, "powerLimit": { "type": "number", "minimum": 0, "maximum": 1 },
+								"classic_config": { "type": "boolean" },
+								"red": { "type": "array", "minItems": 3, "maxItems": 3, "items": { "type": "integer", "minimum": 0, "maximum": 255 } },
+								"green": { "type": "array", "minItems": 3, "maxItems": 3, "items": { "type": "integer", "minimum": 0, "maximum": 255 } },
+								"blue": { "type": "array", "minItems": 3, "maxItems": 3, "items": { "type": "integer", "minimum": 0, "maximum": 255 } },
+								"cyan": { "type": "array", "minItems": 3, "maxItems": 3, "items": { "type": "integer", "minimum": 0, "maximum": 255 } },
+								"magenta": { "type": "array", "minItems": 3, "maxItems": 3, "items": { "type": "integer", "minimum": 0, "maximum": 255 } },
+								"yellow": { "type": "array", "minItems": 3, "maxItems": 3, "items": { "type": "integer", "minimum": 0, "maximum": 255 } },
+								"white": { "type": "array", "minItems": 3, "maxItems": 3, "items": { "type": "integer", "minimum": 0, "maximum": 255 } },
+								"black": { "type": "array", "minItems": 3, "maxItems": 3, "items": { "type": "integer", "minimum": 0, "maximum": 255 } }
+							}, "additionalProperties": false }
+						}, "additionalProperties": false }
+					}
+				}, "additionalProperties": false
+			}
+		}
+	},
+	"additionalProperties": false
+}

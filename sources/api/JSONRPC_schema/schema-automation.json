@@ -1,0 +1,12 @@
+{
+	"type": "object",
+	"required": true,
+	"properties": {
+		"command": { "type": "string", "required": true, "enum": ["automation"] },
+		"subcommand": { "type": "string", "required": true, "enum": ["get", "set", "status", "evaluate"] },
+		"tan": { "type": "integer" },
+		"automation": { "type": "object" },
+		"at": { "type": "string" }
+	},
+	"additionalProperties": false
+}
