@@ -83,6 +83,7 @@ private:
 	void handleClearCommand(const QJsonObject& message, const QString& command, int tan);
 	void handleClearallCommand(const QJsonObject& message, const QString& command, int tan);
 	void handleAdjustmentCommand(const QJsonObject& message, const QString& command, int tan);
+	void handleAutomationCommand(const QJsonObject& message, const QString& command, int tan);
 	void handleSourceSelectCommand(const QJsonObject& message, const QString& command, int tan);
 	void handleConfigCommand(const QJsonObject& message, const QString& command, int tan);
 	void handleSchemaGetCommand(const QJsonObject& message, const QString& command, int tan);

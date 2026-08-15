@@ -8,8 +8,10 @@
 	#include <QJsonValue>
 	#include <QJsonArray>
 	#include <QMap>
+	#include <QDateTime>
 	#include <QTime>
 	#include <QThread>
+	#include <QTimer>
 	#include <QVector>
 
 	#include <list>
@@ -22,6 +24,7 @@
 #include <utils/settings.h>
 #include <utils/Components.h>
 #include <base/LedString.h>
+#include <base/TimeAutomation.h>
 #include <effects/EffectDefinition.h>
 #include <effects/ActiveEffectDefinition.h>
 #include <led-drivers/LedDevice.h>
@@ -78,6 +81,9 @@ public slots:
 	int isComponentEnabled(hyperhdr::Components comp) const;
 	QJsonObject getJsonConfig() const;
 	QJsonObject getJsonInfo(bool full);
+	QJsonObject getAutomationConfig() const;
+	QJsonObject getAutomationStatus() const;
+	QJsonObject evaluateAutomation(const QDateTime& at) const;
 	void registerInput(int priority, hyperhdr::Components component, const QString& origin = "System", const QString& owner = "", unsigned smooth_cfg = 0);
 	void saveCalibration(QString saveData);
 	bool saveSettings(const QJsonObject& config, bool correct = false);
@@ -91,6 +97,7 @@ public slots:
 	void setLedMappingType(int mappingType);
 	void setNewComponentState(hyperhdr::Components component, bool state);
 	void setSetting(settings::type type, QString config);
+	bool setAutomationConfig(const QJsonObject& config);
 	void setSourceAutoSelect(bool state);
 	void setSmoothing(int time);
 	bool setVisiblePriority(int priority);
@@ -129,6 +136,9 @@ private slots:
 
 private:
 	void updateResult(std::vector<linalg::aliases::float3>&& _ledBuffer);
+	void reconcileAutomation(const QDateTime& at = QDateTime::currentDateTime());
+	void applyEffectiveAdjustments();
+	QJsonObject automationResult(const AutomationEvaluation& result) const;
 
 	const quint8	_instIndex;
 	QTime			_bootEffect;
@@ -144,6 +154,7 @@ private:
 	std::unique_ptr<VideoControl> _videoControl;
 	std::unique_ptr<SystemControl> _systemControl;
 	std::unique_ptr<RawUdpServer> _rawUdpServer;
+	std::unique_ptr<QTimer> _automationTimer;
 
 	LoggerName			_log;
 	int					_hwLedCount;
@@ -151,6 +162,9 @@ private:
 
 	QVector<ColorRgb>	_currentLedColors;
 	QString					_name;
+	QJsonObject			_adjustmentBaseline;
+	QJsonObject			_automationOverlay;
+	AutomationEvaluation	_automationEvaluation;
 
 	bool					_disableOnStartup;
 

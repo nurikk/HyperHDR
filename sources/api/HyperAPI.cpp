@@ -142,6 +142,8 @@ void HyperAPI::handleMessage(const QString& messageString, const QString& httpAu
 				handleClearCommand(message, command, tan);
 			else if (command == "adjustment")
 				handleAdjustmentCommand(message, command, tan);
+			else if (command == "automation")
+				handleAutomationCommand(message, command, tan);
 			else if (command == "sourceselect")
 				handleSourceSelectCommand(message, command, tan);
 			else if (command == "config")
@@ -1447,6 +1449,77 @@ void HyperAPI::handleAdjustmentCommand(const QJsonObject& message, const QString
 	QUEUE_CALL_1(_hyperhdr.get(), updateAdjustments, QJsonObject, adjustment);
 
 	sendSuccessReply(command, tan);
+}
+
+void HyperAPI::handleAutomationCommand(const QJsonObject& message, const QString& command, int tan)
+{
+	const QString subcommand = message["subcommand"].toString();
+	const QString fullCommand = command + "-" + subcommand;
+
+	if (subcommand == "get")
+	{
+		if (!_adminAuthorized)
+		{
+			sendErrorReply("No Authorization", command, tan);
+			return;
+		}
+		QJsonObject config;
+		SAFE_CALL_0_RET(_hyperhdr.get(), getAutomationConfig, QJsonObject, config);
+		sendSuccessDataReply(QJsonDocument(config), fullCommand, tan);
+		return;
+	}
+
+	if (subcommand == "set")
+	{
+		if (!_adminAuthorized)
+		{
+			sendErrorReply("No Authorization", command, tan);
+			return;
+		}
+		if (!message["automation"].isObject())
+		{
+			sendErrorReply("Missing automation configuration", fullCommand, tan);
+			return;
+		}
+		QString error;
+		const QJsonObject config = message["automation"].toObject();
+		if (!TimeAutomation::validate(config, error))
+		{
+			sendErrorReply(error, fullCommand, tan);
+			return;
+		}
+		bool saved = false;
+		SAFE_CALL_1_RET(_hyperhdr.get(), setAutomationConfig, bool, saved, QJsonObject, config);
+		if (saved)
+			sendSuccessReply(fullCommand, tan);
+		else
+			sendErrorReply("Save settings failed", fullCommand, tan);
+		return;
+	}
+
+	if (subcommand == "status")
+	{
+		QJsonObject status;
+		SAFE_CALL_0_RET(_hyperhdr.get(), getAutomationStatus, QJsonObject, status);
+		sendSuccessDataReply(QJsonDocument(status), fullCommand, tan);
+		return;
+	}
+
+	if (subcommand == "evaluate")
+	{
+		const QDateTime at = QDateTime::fromString(message["at"].toString(), Qt::ISODate);
+		if (!at.isValid())
+		{
+			sendErrorReply("Invalid or missing ISO-8601 at", fullCommand, tan);
+			return;
+		}
+		QJsonObject result;
+		SAFE_CALL_1_RET(_hyperhdr.get(), evaluateAutomation, QJsonObject, result, QDateTime, at);
+		sendSuccessDataReply(QJsonDocument(result), fullCommand, tan);
+		return;
+	}
+
+	sendErrorReply("unknown or missing subcommand", fullCommand, tan);
 }
 
 void HyperAPI::handleAuthorizeCommand(const QJsonObject& message, const QString& command, int tan)
